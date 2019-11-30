@@ -97,7 +97,7 @@ function fair_convex_svm_classifier(
     @variable(model, PR[1:p] >= 0)
     @variable(model, Δ_FPR[1:q] >= 0)
     @variable(model, Δ_FNR[1:q] >= 0)
-    @variable(model, Δ_PR[1:q] >= 0)
+    @variable(model, Δ_PR[1:q])
     @variable(model, t >= 0)
 
     # Set SVM performance constraints

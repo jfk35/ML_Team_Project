@@ -38,6 +38,45 @@ function calculate_positive_rate(
 end
 
 
+function calculate_svm_tpr_and_fpr(
+    X::Array{Float64, 2},
+    y::Array{Int64, 1},
+    w::Array{Float64, 1},
+    b::Float64
+)::Tuple{Array{Float64, 1}, Array{Float64, 1}}
+    scores = X*w .- b
+    thresholds = sort(unique(scores), rev=true)
+    n = size(thresholds, 1)
+    TPR = zeros(n)
+    FPR = zeros(n)
+    for i=1:n
+        y_hat =  2*(scores .>= thresholds[i]) .- 1
+        TPR[i] = sum((y_hat .== 1) .& (y .== 1))/ sum(y .== 1)
+        FPR[i] = 1 - sum((y_hat .== -1) .& (y .== -1))/ sum(y .== -1)
+    end
+    return TPR, FPR
+end
+
+
+function calculate_svm_auc(
+    X::Array{Float64, 2},
+    y::Array{Int64, 1},
+    w::Array{Float64, 1},
+    b::Float64
+)::Float64
+    TPR, FPR = calculate_svm_tpr_and_fpr(X, y, w, b)
+    return 0.5 * sum((TPR[2:end] .+ TPR[1:end-1]) .* (FPR[2:end] .- FPR[1:end-1]))
+end
+
+
+function calculate_accuracy(
+    y::Array{Int64, 1},
+    y_hat::Array{Int64, 1}
+)::Float64
+    return sum(y .== y_hat) / size(y, 1)
+end
+
+
 function calculate_fairness_score_for_metric(
     y::Array{Int64, 1},
     y_hat::Array{Int64, 1},
@@ -77,13 +116,44 @@ function svm_fairness_summary(
     y::Array{Int64, 1},
     group_assignments::Array{Int64, 1},
     w::Array{Float64, 1},
-    b::Float64
-)
+    b::Float64;
+    logger::Bool = false
+)::Dict{Symbol, Float64}
     y_hat = svm_predict(X, w, b)
     Δ_FPR, Δ_FNR, Δ_FDR, Δ_FOR, Δ_PR = calculate_fairness_scores(y, y_hat, group_assignments)
-    println("False positive rate discrepency: ", round(Δ_FPR; digits=3))
-    println("False negative rate discrepency: ", round(Δ_FNR; digits=3))
-    println("False discovery rate discrepency: ", round(Δ_FDR; digits=3))
-    println("False omission rate discrepency: ", round(Δ_FOR; digits=3))
-    println("Positive rate discrepency: ", round(Δ_PR; digits=3))
+    if logger
+        println("False positive rate discrepency: ", round(Δ_FPR; digits=3))
+        println("False negative rate discrepency: ", round(Δ_FNR; digits=3))
+        println("False discovery rate discrepency: ", round(Δ_FDR; digits=3))
+        println("False omission rate discrepency: ", round(Δ_FOR; digits=3))
+        println("Positive rate discrepency: ", round(Δ_PR; digits=3))
+    end
+    return Dict(
+        :FPR_discrepency => Δ_FPR,
+        :TPR_discrepency => Δ_FNR,
+        :FDR_discrepency => Δ_FDR,
+        :FOR_discrepency => Δ_FOR,
+        :PR_discrepency => Δ_PR
+    )
+end
+
+
+function svm_performance_summary(
+    X::Array{Float64, 2},
+    y::Array{Int64, 1},
+    group_assignments::Array{Int64, 1},
+    w::Array{Float64, 1},
+    b::Float64;
+    logger::Bool = false
+)::Dict{Symbol, Float64}
+    accuracy = calculate_accuracy(y, svm_predict(X, w, b))
+    AUC = calculate_svm_auc(X, y, w, b)
+    if logger
+        println("Accuracy: ", round(accuracy; digits=3))
+        println("AUC: ", round(AUC; digits=3))
+    end
+    return Dict(
+        :accuracy => accuracy,
+        :AUC => AUC
+    )
 end

@@ -1,5 +1,6 @@
-using JuMP, Gurobi, Random, PyPlot, Dates, LinearAlgebra, CSV
+using JuMP, Gurobi, Dates, LinearAlgebra
 GUROBI_ENV = Gurobi.Env()
+
 
 function get_group_indicator_matrix(
     group_assignments::Array{Int64, 1}
@@ -14,6 +15,7 @@ function get_group_indicator_matrix(
     end
     return A
 end
+
 
 function lasso_regressor(
     X::Array{Float64, 2},
@@ -49,14 +51,15 @@ function lasso_regressor(
     end
 end
 
+
 function fair_lasso_regressor(
     X::Array{Float64, 2},
     y::Array{Float64, 1},
     group_assignments::Array{Int64, 1};
     Γ::Float64=0.01, # regularization penalty
     δ::Float64=0.1, # max percent optimality decrease
-    λ::Float64=1.0, # mean overshoot weight,
-    μ::Float64=1.0, # meane value weight
+    θ::Float64=0.5, # overshoot (vs undershoot) weighting
+    λ::Float64=0.01, # disparate impact penalty
     return_objective_value::Bool = false,
     solver_time_limit::Int64=60,
     log::Bool = false
@@ -109,7 +112,7 @@ function fair_lasso_regressor(
     @constraint(model, [k=1:p, l=k+1:p, m=Int(l-k+(p-k/2)*(k-1))], Δ_MO[m] >= MO[l] - MO[k])
     @constraint(model, [k=1:p, l=k+1:p, m=Int(l-k+(p-k/2)*(k-1))], Δ_MV[m] >= MV[k] - MV[l])
     @constraint(model, [k=1:p, l=k+1:p, m=Int(l-k+(p-k/2)*(k-1))], Δ_MV[m] >= MV[l] - MV[k])
-    @constraint(model, t .== ones(q)'*(Δ_MU .+ λ*Δ_MO .+ μ*Δ_MV))
+    @constraint(model, t .== ones(q)'*(θ*Δ_MU .+ (1-θ)*Δ_MO .+ λ*Δ_MV))
 
     # Set objective
     @objective(model, Min, t)
@@ -124,128 +127,3 @@ function fair_lasso_regressor(
         return getvalue(β)
     end
 end
-
-function calculate_mean_overshoot(
-    y::Array{Float64, 1},
-    y_hat::Array{Float64, 1}
-)::Float64
-    return sum(max.(y_hat .- y, 0)) / size(y, 1)
-end
-
-
-function calculate_mean_undershoot(
-    y::Array{Float64, 1},
-    y_hat::Array{Float64, 1}
-)::Float64
-    return sum(max.(y .- y_hat, 0)) / size(y, 1)
-end
-
-
-function calculate_mean_value(
-    y::Array{Float64, 1},
-    y_hat::Array{Float64, 1}
-)::Float64
-    return sum(y_hat) / size(y, 1)
-end
-
-
-function calculate_fairness_score_for_metric(
-    y::Array{Float64, 1},
-    y_hat::Array{Float64, 1},
-    group_assignments::Array{Int64, 1},
-    metric::Function
-)::Float64
-    group_metrics = [metric(y[group_assignments .== k], y_hat[group_assignments .== k]) for k=1:p]
-    return sum([sum([abs(group_metrics[k] - group_metrics[l]) for l=k+1:p]) for k=1:p]) / (p*(p - 1)/2)
-end
-
-
-function calculate_fairness_scores(
-    y::Array{Float64, 1},
-    y_hat::Array{Float64, 1},
-    group_assignments::Array{Int64, 1}
-)::Tuple{Float64, Float64, Float64}
-    Δ_MU = calculate_fairness_score_for_metric(y, y_hat, group_assignments, calculate_mean_undershoot)
-    Δ_MO = calculate_fairness_score_for_metric(y, y_hat, group_assignments, calculate_mean_overshoot)
-    Δ_MV = calculate_fairness_score_for_metric(y, y_hat, group_assignments, calculate_mean_value)
-    return Δ_MU, Δ_MO, Δ_MV
-end
-
-
-function regressor_fairness_summary(
-    X::Array{Float64, 2},
-    y::Array{Float64, 1},
-    group_assignments::Array{Int64, 1},
-    β::Array{Float64, 1},
-)
-    y_hat = X*β
-    Δ_MU, Δ_MO, Δ_MV = calculate_fairness_scores(y, y_hat, group_assignments)
-    println("Mean undershoot discrepency: ", round(Δ_MU; digits=3))
-    println("Mean overshoot discrepency: ", round(Δ_MO; digits=3))
-    println("Mean value discrepency: ", round(Δ_MV; digits=3))
-end
-
-function generate_random_regression_data(
-    n::Int64,
-    d::Int64,
-    p::Int64;
-    σ=0.1,
-    seed=42
-)::Tuple{Array{
-    Float64, 2}, Array{Float64, 1}, Array{Int64, 1}}
-    rng = MersenneTwister(seed)
-    group_assignments = rand(rng, 1:p, n)
-    X = rand(rng, n, d) .* [group_assignments[i] for i=1:n,j=1:d]
-    β_true = randn(rng, d) .* rand(rng, [0, 1], d)
-    y = X*β_true + σ*randn(rng, n)
-    return X, y, group_assignments
-end
-
-function generate_random_regression_data(
-    n::Int64,
-    d::Int64,
-    p::Int64;
-    σ=0.1,
-    seed=42
-)::Tuple{Array{
-    Float64, 2}, Array{Float64, 1}, Array{Int64, 1}}
-    rng = MersenneTwister(seed)
-    group_assignments = rand(rng, 1:p, n)
-    X = rand(rng, n, d) .* [group_assignments[i] for i=1:n,j=1:d]
-    β_true = randn(rng, d) .* rand(rng, [0, 1], d)
-    y = X*β_true + σ*randn(rng, n)
-    return X, y, group_assignments
-end
-
-function load_regression_data(
-        )::Tuple{Array{
-    Float64, 2}, Array{Float64, 1}, Array{Int64, 1}}
-    dataset = CSV.read("fairRegressionData.csv")
-    X = convert(Matrix, dataset[:,2:12])
-    y = dataset[15]
-    groupAssignments = dataset[13]
-    return X, y, groupAssignments
-
-end
-
-X, y, group_assignments = load_regression_data()
-p = 2
-β = lasso_regressor(X, y)
-β_fair = fair_lasso_regressor(X, y, group_assignments)
-parameterToPlot = 5
-
-
-Xplot = X[:,parameterToPlot]
-for k=1:p
-    plt.scatter(Xplot[group_assignments .== k], y[group_assignments .== k], label=k)
-end
-
-X_grid = minimum(Xplot):0.1:maximum(Xplot)
-plt.plot(X_grid, β[parameterToPlot].*X_grid, color="k", linestyle="--", label="Lasso")
-plt.plot(X_grid, β_fair[parameterToPlot].*X_grid, color="g", linestyle="--", label="Fair")
-plt.xlabel("Percent Black")
-plt.ylabel("Violent Crimes Per Capita")
-plt.legend();
-
-regressor_fairness_summary(X, y, group_assignments, β)
-regressor_fairness_summary(X, y, group_assignments, β_fair)

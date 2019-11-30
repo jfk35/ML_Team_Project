@@ -1,4 +1,4 @@
-using JuMP, Gurobi, Random, PyPlot, Dates, LinearAlgebra
+using JuMP, Gurobi, Random, PyPlot, Dates, LinearAlgebra, CSV
 GUROBI_ENV = Gurobi.Env()
 
 function get_group_indicator_matrix(
@@ -217,23 +217,35 @@ function generate_random_regression_data(
     return X, y, group_assignments
 end
 
-# Example of random data
-n = 100
-d = 1
+function load_regression_data(
+        )::Tuple{Array{
+    Float64, 2}, Array{Float64, 1}, Array{Int64, 1}}
+    dataset = CSV.read("fairRegressionData.csv")
+    X = convert(Matrix, dataset[:,2:12])
+    y = dataset[15]
+    groupAssignments = dataset[13]
+    return X, y, groupAssignments
+
+end
+
+X, y, group_assignments = load_regression_data()
 p = 2
-X, y, group_assignments = generate_random_regression_data(100, 1, 2)
 β = lasso_regressor(X, y)
 β_fair = fair_lasso_regressor(X, y, group_assignments)
+parameterToPlot = 5
+
+
+Xplot = X[:,parameterToPlot]
 for k=1:p
-    plt.scatter(X[group_assignments .== k], y[group_assignments .== k], label=k)
+    plt.scatter(Xplot[group_assignments .== k], y[group_assignments .== k], label=k)
 end
-X_grid = minimum(X):0.1:maximum(X)
-plt.plot(X_grid, β_lasso.*X_grid, color="k", linestyle="--", label="Lasso")
-plt.plot(X_grid, β_fair.*X_grid, color="g", linestyle="--", label="Fair")
-plt.xlabel("x")
-plt.ylabel("y")
+
+X_grid = minimum(Xplot):0.1:maximum(Xplot)
+plt.plot(X_grid, β[parameterToPlot].*X_grid, color="k", linestyle="--", label="Lasso")
+plt.plot(X_grid, β_fair[parameterToPlot].*X_grid, color="g", linestyle="--", label="Fair")
+plt.xlabel("Percent Black")
+plt.ylabel("Violent Crimes Per Capita")
 plt.legend();
 
 regressor_fairness_summary(X, y, group_assignments, β)
-
 regressor_fairness_summary(X, y, group_assignments, β_fair)

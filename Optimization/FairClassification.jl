@@ -1,4 +1,4 @@
-using JuMP, Gurobi, Random, PyPlot, Dates
+using JuMP, Gurobi, Random, PyPlot, Dates, CSV
 GUROBI_ENV = Gurobi.Env()
 
 function get_group_indicator_matrix(
@@ -212,13 +212,27 @@ function generate_random_classification_data(
     return X, y, group_assignments
 end
 
-# Generate low dimensional random data
-n = 100
-d = 2
-p = 3
-X, y, group_assignments = generate_random_classification_data(n, d, p, σ=2);
+function load_classification_data(
+        )::Tuple{Array{
+    Float64, 2}, Array{Float64, 1}, Array{Int64, 1}}
+    dataset = CSV.read("../fairClassificationData.csv", missingstring="NA")
+    #print(dataset)
+    X = dataset[:,[2:7;9:22]]
+    y = dataset[:,8]
+    groupAssignments = dataset[:,23]
+    lnrknnnew = IAI.OptKNNImputationLearner()
+    imputedX = IAI.fit_transform!(lnrknnnew, X)
+    return imputedX, y, groupAssignments
+end
+
+
+X,y,groupAssignments = load_classification_data()
+X = convert(Matrix, X)
+y = convert(Array{Int64,1}, y)
+group_assignments = convert(Array{Int64,1},groupAssignments)
 w, b = svm_classifier(X, y)
 w_fair, b_fair = fair_svm_classifier(X, y, group_assignments);
+
 markers = ["x", "o", "v"]
 colors = ["blue", "orange", "red"]
 for k=1:p
@@ -237,5 +251,4 @@ plt.plot(X1_grid, (b_fair .- w_fair[1].*X1_grid)/w_fair[2], color="g", linestyle
 plt.legend();
 
 svm_fairness_summary(X, y, group_assignments, w, b)
-
 svm_fairness_summary(X, y, group_assignments, w_fair, b_fair)

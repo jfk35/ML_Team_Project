@@ -23,7 +23,7 @@ function lasso_regressor(
     Γ::Float64=0.01,
     return_objective_value::Bool = false,
     solver_time_limit::Int64=60
-)::Union{Array{Float64, 1}, Float64}
+)::Union{Array{Float64, 1}, Tuple{Array{Float64, 1}, Float64}}
 
     # Initialize model
     model = Model(solver=GurobiSolver(OutputFlag=0, TimeLimit=solver_time_limit, GUROBI_ENV))
@@ -45,7 +45,7 @@ function lasso_regressor(
     # Solve and return optimal objective value or regression coefficients
     solve(model)
     if return_objective_value
-        return getobjectivevalue(model)
+        return getvalue(β), getobjectivevalue(model)
     else
         return getvalue(β)
     end
@@ -73,7 +73,12 @@ function fair_lasso_regressor(
     q = Int(p*(p - 1)/2) # number of pairs of groups
     n, d = size(X) # number of data points and number of features
     group_size = [sum(A[k,:]) for k=1:p]
-    min_loss = lasso_regressor(X, y; Γ=Γ, return_objective_value=true) # Min loss of problem w/o fairness constraints
+
+    # Get parameters and metrics from nominal solution
+    β_nominal, min_loss = lasso_regressor(X, y; Γ=Γ, return_objective_value=true)
+    y_hat_nominal = X*β_nominal
+    MU_nominal, MO_nominal, MV_nominal = calculate_regression_metrics_by_group(
+        y, y_hat_nominal, group_assignments)
 
     # Initialize model
     model = Model(solver=GurobiSolver(OutputFlag=0, TimeLimit=solver_time_limit, GUROBI_ENV))
@@ -106,6 +111,8 @@ function fair_lasso_regressor(
     @constraint(model, MV .== (A'*X*β)./group_size)
 
     # Set fairness constraints
+    #@constraint(model, MU .<= (1 + δ)*MU_nominal)
+    #@constraint(model, MO .<= (1 + δ)*MO_nominal)
     @constraint(model, [k=1:p, l=k+1:p, m=Int(l-k+(p-k/2)*(k-1))], Δ_MU[m] >= MU[k] - MU[l])
     @constraint(model, [k=1:p, l=k+1:p, m=Int(l-k+(p-k/2)*(k-1))], Δ_MU[m] >= MU[l] - MU[k])
     @constraint(model, [k=1:p, l=k+1:p, m=Int(l-k+(p-k/2)*(k-1))], Δ_MO[m] >= MO[k] - MO[l])

@@ -77,18 +77,43 @@ function calculate_accuracy(
 end
 
 
+function calculate_metric_by_group(
+    y::Array{Int64, 1},
+    y_hat::Array{Int64, 1},
+    group_assignments::Array{Int64, 1},
+    metric::Function
+)::Array{Float64, 1}
+    p = size(unique(group_assignments), 1)
+    return [metric(y[group_assignments .== k], y_hat[group_assignments .== k]) for k=1:p]
+end
+
+
 function calculate_fairness_score_for_metric(
     y::Array{Int64, 1},
     y_hat::Array{Int64, 1},
     group_assignments::Array{Int64, 1},
     metric::Function
 )::Float64
-    group_metrics = [metric(y[group_assignments .== k], y_hat[group_assignments .== k]) for k=1:p]
+    group_metrics = calculate_metric_by_group(y, y_hat, group_assignments, metric)
     return sum([sum([abs(group_metrics[k] - group_metrics[l]) for l=k+1:p]) for k=1:p]) / (p*(p - 1)/2)
 end
 
 
-function calculate_fairness_scores(
+function calculate_classification_metrics_by_group(
+    y::Array{Int64, 1},
+    y_hat::Array{Int64, 1},
+    group_assignments::Array{Int64, 1}
+)::Tuple{Array{Float64, 1}, Array{Float64, 1}, Array{Float64, 1}, Array{Float64, 1}, Array{Float64, 1}}
+    FPR = calculate_metric_by_group(y, y_hat, group_assignments, calculate_false_positive_rate)
+    FNR = calculate_metric_by_group(y, y_hat, group_assignments, calculate_false_negative_rate)
+    FDR = calculate_metric_by_group(y, y_hat, group_assignments, calculate_false_discovery_rate)
+    FOR = calculate_metric_by_group(y, y_hat, group_assignments, calculate_false_ommission_rate)
+    PR = calculate_metric_by_group(y, y_hat, group_assignments, calculate_false_positive_rate)
+    return FPR, FNR, FDR, FOR, PR
+end
+
+
+function calculate_classification_fairness_scores(
     y::Array{Int64, 1},
     y_hat::Array{Int64, 1},
     group_assignments::Array{Int64, 1}
@@ -120,7 +145,7 @@ function svm_fairness_summary(
     logger::Bool = false
 )::Dict{Symbol, Float64}
     y_hat = svm_predict(X, w, b)
-    Δ_FPR, Δ_FNR, Δ_FDR, Δ_FOR, Δ_PR = calculate_fairness_scores(y, y_hat, group_assignments)
+    Δ_FPR, Δ_FNR, Δ_FDR, Δ_FOR, Δ_PR = calculate_classification_fairness_scores(y, y_hat, group_assignments)
     if logger
         println("False positive rate discrepency: ", round(Δ_FPR; digits=3))
         println("False negative rate discrepency: ", round(Δ_FNR; digits=3))

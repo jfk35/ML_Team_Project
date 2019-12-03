@@ -100,10 +100,12 @@ function fair_convex_svm_classifier(
     @variable(model, Δ_PR[1:q])
     @variable(model, t >= 0)
 
-    # Set SVM performance constraints
+    # Get objective value for nominal solution
     _, _, min_loss = svm_classifier(X, y; Γ=Γ, return_objective_value=true)
-    @constraint(model, y.*(X*w .- b) .>= 1 - ξ)
+
+    # Set SVM performance constraints
     @constraint(model, (ones(n)'*ξ)/n + Γ*(w'*w + b*b) <= (1 + δ)*min_loss)
+    @constraint(model, y.*(X*w .- b) .>= 1 - ξ)
 
     # Set constraints for FPR, FNR and PR calculation
     @constraint(model, FPR .== (A'*(ξ .* (y .== -1))) ./ negative_group_size)
@@ -141,7 +143,8 @@ function fair_svm_classifier(
     θ::Float64 = 0.5, # FPR (vs FNR) weight
     η::Float64 = 0.75, # Disparate mistreatment (vs disparate impact) weight
     M::Float64 = 1e3, # big M constant
-    use_warm_start::Bool = false,
+    use_warm_start::Bool = true,
+    cap_error_rates::Bool = false,
     return_objective_value::Bool = false,
     logger::Bool = false,
     mip_gap_abs::Float64 = 1e-3,
@@ -184,22 +187,29 @@ function fair_svm_classifier(
     @variable(model, Δ_FNR[1:q] >= 0)
     @variable(model, Δ_PR[1:q] >= 0)
     @variable(model, t >= 0)
+    if cap_error_rates
+        @variable(model, FPR_incease[1:p] >= 0)
+        @variable(model, FNR_incease[1:p] >= 0)
+        @variable(model, error_rate_penalty >= 0)
+    end
+
+    # Get parameters and objective value from nominal solution
+    w_nominal, b_nominal, min_loss = svm_classifier(X, y; Γ=Γ, return_objective_value=true)
 
     # Warm start
     if use_warm_start
-        w_start, b_start = fair_convex_svm_classifier(X, y, group_assignments;
+        w_convex, b_convex = fair_convex_svm_classifier(X, y, group_assignments;
             Γ=Γ, δ=δ, θ=θ, η=η)
-        y_hat = svm_predict(X, w_start, b_start)
-        setvalue.(w, w_start)
-        setvalue.(b, b_start)
-        setvalue.(positive_indicator, (y_hat .== 1))
-        setvalue.(error_indicator, (y_hat .== -y))
+        y_hat_convex = svm_predict(X, w_convex, b_convex)
+        setvalue.(w, w_convex)
+        setvalue.(b, b_convex)
+        setvalue.(positive_indicator, (y_hat_convex .== 1))
+        setvalue.(error_indicator, (y_hat_convex .== -y))
     end
 
     # Set SVM performance constraints
-    _, _, min_loss = svm_classifier(X, y; Γ=Γ, return_objective_value=true)
-    @constraint(model, y.*(X*w .- b) .>= 1 - ξ)
     @constraint(model, (ones(n)'*ξ)/n + Γ*(w'*w + b*b) <= (1 + δ)*min_loss)
+    @constraint(model, y.*(X*w .- b) .>= 1 - ξ)
 
     # Set constraints for positive prediction and error indicator variables
     @constraint(model, X*w .- b .<= M*positive_indicator)
@@ -221,8 +231,22 @@ function fair_svm_classifier(
     @constraint(model, [k=1:p, l=k+1:p, m=Int(l-k+(p-k/2)*(k-1))], Δ_PR[m] >= PR[l] - PR[k])
     @constraint(model, t .== ones(q)'*(η*(θ*Δ_FPR .+ (1-θ)Δ_FNR) .+ (1-η)*Δ_PR))
 
+    # Set error rate cap constraints
+    if cap_error_rates
+        y_hat_nominal = svm_predict(X, w_nominal, b_nominal)
+        FPR_nominal, FNR_nominal, FDR_nominal, FOR_nominal, PR_star = calculate_classification_metrics_by_group(
+            y, y_hat_nominal, group_assignments)
+        @constraint(model, FPR_incease .>= FPR .- (1 + δ)*FPR_nominal)
+        @constraint(model, FNR_incease .>= FNR .- (1 + δ)*FNR_nominal)
+        @constraint(model, error_rate_penalty .== 1e6*ones(p)'*(FPR_incease + FNR_incease))
+    end
+
     # Set objective
-    @objective(model, Min, t)
+    if cap_error_rates
+        @objective(model, Min, t + error_rate_penalty)
+    else
+        @objective(model, Min, t)
+    end
 
     # Solve model and log performance if desired
     solve(model)

@@ -74,7 +74,6 @@ function fair_lasso_regressor(
     n, d = size(X) # number of data points and number of features
     group_size = [sum(A[k,:]) for k=1:p]
     min_loss = lasso_regressor(X, y; Γ=Γ, return_objective_value=true) # Min loss of problem w/o fairness constraints
-
     # Initialize model
     model = Model(solver=GurobiSolver(OutputFlag=0, TimeLimit=solver_time_limit, GUROBI_ENV))
 

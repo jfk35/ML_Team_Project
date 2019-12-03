@@ -83,6 +83,7 @@ function calculate_fairness_score_for_metric(
     group_assignments::Array{Int64, 1},
     metric::Function
 )::Float64
+    p = length(unique(group_assignments))
     group_metrics = [metric(y[group_assignments .== k], y_hat[group_assignments .== k]) for k=1:p]
     return sum([sum([abs(group_metrics[k] - group_metrics[l]) for l=k+1:p]) for k=1:p]) / (p*(p - 1)/2)
 end

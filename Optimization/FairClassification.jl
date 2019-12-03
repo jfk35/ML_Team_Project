@@ -16,6 +16,15 @@ function get_group_indicator_matrix(
     return A
 end
 
+function calculate_big_M(
+    X::Array{Float64, 2})::Float64
+    dist = 0
+    for i =1:size(X)[2]
+        range = maximum(X[:,i]) - minimum(X[:, i])
+        dist = dist + range^2
+    end
+    return sqrt(dist)
+end
 
 function svm_classifier(
     X::Array{Float64, 2},
@@ -84,6 +93,7 @@ function fair_convex_svm_classifier(
         solver=GurobiSolver(
             OutputFlag=0,
             TimeLimit=solver_time_limit,
+            InfUnbdInfo=true,
             GUROBI_ENV
         )
     )
@@ -94,7 +104,7 @@ function fair_convex_svm_classifier(
     @variable(model, ξ[1:n] >= 0)
     @variable(model, FPR[1:p] >= 0)
     @variable(model, FNR[1:p] >= 0)
-    @variable(model, PR[1:p] >= 0)
+    @variable(model, PR[1:p])
     @variable(model, Δ_FPR[1:q] >= 0)
     @variable(model, Δ_FNR[1:q] >= 0)
     @variable(model, Δ_PR[1:q])

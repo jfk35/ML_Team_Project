@@ -3,7 +3,7 @@ library(dplyr)
 library(tidyr)
 library(caret)
 
-crimes <- read.csv("Data/compasData.csv")
+crimes <- read.csv("Data/fairClassificationData.csv")
 
 crimes <- crimes %>% filter(is_recid != -1)
 crimes <- crimes %>% select(sex, age_cat, race, juv_fel_count, juv_misd_count, juv_other_count, priors_count, days_b_screening_arrest, c_days_from_compas, c_charge_degree,is_recid)
